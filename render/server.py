@@ -11,7 +11,7 @@ Exposes the render engine over HTTP so the dashboard can trigger a video:
 Run:  uvicorn server:app --host 0.0.0.0 --port 8080
 """
 import os, json, subprocess, threading, uuid
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,8 +21,60 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.environ.get("TF_OUT", os.path.join(HERE, "renders"))
-os.makedirs(OUT_DIR, exist_ok=True)
+VOICES_DIR = os.environ.get("PIPER_VOICES_DIR", os.path.join(HERE, "..", "voices"))
+CLONES_DIR = os.path.join(VOICES_DIR, "clones")
+for d in (OUT_DIR, VOICES_DIR, CLONES_DIR):
+    os.makedirs(d, exist_ok=True)
 JOBS = {}
+
+# A small starter catalog of openly-available Piper voices the UI can offer
+# even before any are installed on disk.
+CATALOG = [
+    {"id": "en_US-amy-medium", "label": "Amy — US English (medium)"},
+    {"id": "en_US-ryan-high", "label": "Ryan — US English (high)"},
+    {"id": "en_US-lessac-high", "label": "Lessac — US English (high)"},
+    {"id": "en_GB-alba-medium", "label": "Alba — UK English (medium)"},
+    {"id": "en_US-hfc_female-medium", "label": "HFC Female — US English"},
+]
+
+
+@app.get("/voices")
+def voices():
+    """What the dropdown shows: voices installed on disk + cloned voices + catalog."""
+    installed = []
+    if os.path.isdir(VOICES_DIR):
+        for f in sorted(os.listdir(VOICES_DIR)):
+            if f.endswith(".onnx"):
+                vid = f[:-5]
+                installed.append({"id": vid, "label": vid, "kind": "piper"})
+    clones = []
+    if os.path.isdir(CLONES_DIR):
+        for f in sorted(os.listdir(CLONES_DIR)):
+            if f.endswith(".wav"):
+                name = f[:-4]
+                clones.append({"id": "clone:" + name, "label": name + " (cloned)", "kind": "clone"})
+    return {"installed": installed, "clones": clones, "catalog": CATALOG}
+
+
+@app.post("/voices/clone")
+async def clone_voice(name: str = Form(...), sample: UploadFile = File(...)):
+    """Store a reference clip as a cloned voice. Synthesis happens at render time
+    via the cloning engine (XTTS) if installed; otherwise it falls back."""
+    safe = "".join(c for c in name if c.isalnum() or c in "-_").strip("-_") or "voice"
+    raw = os.path.join(CLONES_DIR, "_in_" + safe)
+    dest = os.path.join(CLONES_DIR, safe + ".wav")
+    with open(raw, "wb") as f:
+        f.write(await sample.read())
+    # normalise to 22.05k mono wav
+    r = subprocess.run(["ffmpeg", "-y", "-i", raw, "-ar", "22050", "-ac", "1", dest],
+                       stderr=subprocess.PIPE)
+    try:
+        os.remove(raw)
+    except OSError:
+        pass
+    if r.returncode != 0 or not os.path.exists(dest):
+        return JSONResponse({"error": "could not read that audio file"}, status_code=400)
+    return {"id": "clone:" + safe, "label": safe + " (cloned)", "kind": "clone"}
 
 
 def do_render(job_id, manifest):

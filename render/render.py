@@ -101,6 +101,9 @@ def make_card(scene, idx, total, out):
     gradient(d)
     chevrons(d, 90, 92, 26)
     d.text((180, 96), f"{idx + 1:02d} / {total:02d}", font=font(40), fill=MUTED)
+    spk = (scene.get("speaker") or "narrator")
+    if spk and spk != "narrator":
+        d.text((90, 160), spk.upper(), font=font(34), fill=AMBER)
 
     text = (scene.get("narration") or scene.get("image_prompt") or "").strip()
     fbig = font(76)
@@ -144,18 +147,61 @@ def gen_image(scene, idx, total, out):
     make_card(scene, idx, total, out)
 
 
-def tts(text, out, fallback_secs):
-    piper, voice = os.environ.get("PIPER_BIN"), os.environ.get("PIPER_VOICE")
-    if piper and voice and text.strip():
-        try:
-            wav = out.replace(".m4a", ".wav")
-            p = subprocess.run([piper, "--model", voice, "--output_file", wav],
-                               input=text.encode(), stderr=subprocess.PIPE)
-            if p.returncode == 0 and os.path.exists(wav):
-                run(["ffmpeg", "-y", "-i", wav, "-ar", "44100", "-ac", "2", out])
-                return probe_dur(out)
-        except Exception as e:
-            print(f"   ! TTS failed ({e}); using silent track", file=sys.stderr)
+def _clones_dir():
+    return os.path.join(os.environ.get("PIPER_VOICES_DIR", "/opt/tweenforge/voices"), "clones")
+
+
+def resolve_voice(voice_id):
+    """Return a voice spec: {'kind':'clone','ref':wav} or {'kind':'piper','model':onnx}."""
+    if not voice_id:
+        return {"kind": "piper", "model": os.environ.get("PIPER_VOICE")}
+    vid = str(voice_id)
+    if vid.startswith("clone:"):
+        ref = os.path.join(_clones_dir(), vid.split(":", 1)[1] + ".wav")
+        if os.path.exists(ref):
+            return {"kind": "clone", "ref": ref}
+        return {"kind": "piper", "model": os.environ.get("PIPER_VOICE")}
+    if os.path.exists(vid):
+        return {"kind": "piper", "model": vid}
+    vdir = os.environ.get("PIPER_VOICES_DIR", "/opt/tweenforge/voices")
+    cand = os.path.join(vdir, vid if vid.endswith(".onnx") else vid + ".onnx")
+    return {"kind": "piper", "model": cand if os.path.exists(cand) else os.environ.get("PIPER_VOICE")}
+
+
+_XTTS = None
+
+
+def _clone_say(text, ref_wav, wav_out):
+    """Zero-shot clone via Coqui XTTS-v2, if installed. Returns True on success."""
+    global _XTTS
+    try:
+        if _XTTS is None:
+            from TTS.api import TTS
+            _XTTS = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+        _XTTS.tts_to_file(text=text, speaker_wav=ref_wav, language="en", file_path=wav_out)
+        return os.path.exists(wav_out)
+    except Exception as e:
+        print(f"   ! clone engine (XTTS) unavailable ({e}); falling back", file=sys.stderr)
+        return False
+
+
+def tts(text, out, fallback_secs, spec=None):
+    spec = spec or {"kind": "piper", "model": os.environ.get("PIPER_VOICE")}
+    wav = out.replace(".m4a", ".wav")
+    if text.strip():
+        if spec.get("kind") == "clone" and _clone_say(text, spec["ref"], wav):
+            run(["ffmpeg", "-y", "-i", wav, "-ar", "44100", "-ac", "2", out])
+            return probe_dur(out)
+        piper, model = os.environ.get("PIPER_BIN"), spec.get("model")
+        if piper and model and os.path.exists(model):
+            try:
+                p = subprocess.run([piper, "--model", model, "--output_file", wav],
+                                   input=text.encode(), stderr=subprocess.PIPE)
+                if p.returncode == 0 and os.path.exists(wav):
+                    run(["ffmpeg", "-y", "-i", wav, "-ar", "44100", "-ac", "2", out])
+                    return probe_dur(out)
+            except Exception as e:
+                print(f"   ! Piper failed ({e}); using silent track", file=sys.stderr)
     # silent fallback sized to the scene's planned duration
     run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
          "-t", str(fallback_secs), out])
@@ -193,14 +239,19 @@ def main():
     tmp = tempfile.mkdtemp(prefix="tf_render_")
     clips = []
     total = len(scenes)
+    voices = manifest.get("voices", {}) or {}
+    if "narrator" not in voices and manifest.get("narrator_voice"):
+        voices["narrator"] = manifest["narrator_voice"]
     print(f">> Rendering '{manifest.get('title','Untitled')}' — {total} scenes")
     for i, sc in enumerate(scenes):
-        print(f"   [{i+1}/{total}] visual + voiceover…")
+        speaker = sc.get("speaker", "narrator")
+        print(f"   [{i+1}/{total}] {speaker}: visual + voiceover…")
         img = os.path.join(tmp, f"s{i:03d}.png")
         aud = os.path.join(tmp, f"s{i:03d}.m4a")
         clip = os.path.join(tmp, f"s{i:03d}.mp4")
         gen_image(sc, i, total, img)
-        dur = tts(sc.get("narration", ""), aud, sc.get("seconds", 6) or 6)
+        voice_spec = resolve_voice(voices.get(speaker) or voices.get("narrator"))
+        dur = tts(sc.get("narration", ""), aud, sc.get("seconds", 6) or 6, voice_spec)
         scene_clip(img, aud, max(1.5, dur), sc.get("motion", "zoom-in"), clip)
         clips.append(clip)
 

@@ -13,12 +13,20 @@ import { useState, useEffect, useRef, useCallback } from "react";
 const STORE_KEY = "cels:projects:v1";
 const SETTINGS_KEY = "cels:settings:v1";
 
+// Default the render service to the SAME host the dashboard is served from,
+// on port 8080 — not localhost. Served from http://192.168.0.27:5173, this
+// resolves to http://192.168.0.27:8080 automatically.
+const RENDER_DEFAULT =
+  (typeof window !== "undefined" && window.location && window.location.hostname)
+    ? `${window.location.protocol}//${window.location.hostname}:8080`
+    : "http://localhost:8080";
+
 /* ---- AI providers. "preview" is the built-in in-chat proxy (no key, works here,
    capped ~1000 tokens). The rest you fill in for use on your server. ---- */
 function defaultSettings() {
   return {
     active: "preview",
-    renderUrl: "http://localhost:8080",
+    renderUrl: RENDER_DEFAULT,
     providers: {
       preview:    { id: "preview",    label: "Claude — in-chat preview", kind: "anthropic-proxy", baseUrl: "", apiKey: "", model: "claude-sonnet-4-20250514" },
       openai:     { id: "openai",     label: "OpenAI",                    kind: "openai", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini" },
@@ -229,7 +237,7 @@ export default function App() {
         if (sres) {
           const loaded = JSON.parse(sres.value);
           const base = defaultSettings();
-          setSettings({ active: loaded.active || base.active, providers: { ...base.providers, ...(loaded.providers || {}) } });
+          setSettings({ active: loaded.active || base.active, renderUrl: loaded.renderUrl || base.renderUrl, providers: { ...base.providers, ...(loaded.providers || {}) } });
         }
       } catch (_) {}
     })();
@@ -375,9 +383,9 @@ function Topbar({ onMenu, project, settings, onSettings }) {
         <span className="wordmark">TWEENFORGE</span>
         <span className="tagline">animation desk</span>
       </div>
-      <button className="provbtn" onClick={onSettings} title="API & models">
+      <button className="provbtn" onClick={onSettings} title={active?.label || "Settings"}>
         <span className="gear" aria-hidden>⚙</span>
-        <span className="provlabel">{active?.label || "Settings"}</span>
+        <span className="provlabel">Settings</span>
       </button>
       <div className="topstat">
         <span className="dot" data-status={project?.status} />
@@ -477,11 +485,84 @@ function BriefLayer({ project, update }) {
   );
 }
 
+/* ---- voice dropdown + clone uploader ---- */
+function VoiceSelect({ value, options, onChange }) {
+  const has = options.some((o) => o.id === value);
+  return (
+    <select value={value || ""} onChange={(e) => onChange(e.target.value)}>
+      <option value="">— choose voice —</option>
+      {!has && value ? <option value={value}>{value}</option> : null}
+      {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+    </select>
+  );
+}
+
+function CloneVoice({ base, onCloned }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const fileRef = useRef(null);
+
+  async function submit() {
+    const f = fileRef.current?.files?.[0];
+    if (!name.trim() || !f) { setMsg("Add a name and a short audio sample."); return; }
+    setBusy(true); setMsg("");
+    try {
+      const fd = new FormData();
+      fd.append("name", name.trim());
+      fd.append("sample", f);
+      const r = await fetch(base + "/voices/clone", { method: "POST", body: fd });
+      const d = await r.json();
+      if (!d.id) throw new Error(d.error || "clone failed");
+      setMsg(`Added "${d.label}".`);
+      setName(""); if (fileRef.current) fileRef.current.value = "";
+      onCloned?.(d);
+    } catch (e) {
+      setMsg(e.message + " — is the render service running? (" + base + ")");
+    } finally { setBusy(false); }
+  }
+
+  if (!open) return <button className="ghost tiny" onClick={() => setOpen(true)}>+ Clone a voice</button>;
+  return (
+    <div className="clonebox">
+      <div className="clonerow">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Voice name (e.g. Narrator2)" />
+        <input ref={fileRef} type="file" accept="audio/*" />
+      </div>
+      <div className="clonerow">
+        <button className="ghost tiny" onClick={submit} disabled={busy}>{busy ? "Cloning…" : "Create cloned voice"}</button>
+        <button className="ghost tiny" onClick={() => setOpen(false)}>Cancel</button>
+        {msg && <span className="help" style={{ margin: 0 }}>{msg}</span>}
+      </div>
+      <span className="help">Upload ~10–30s of clean speech. Cloning uses XTTS on the render box; if it isn't installed, the voice falls back to the default until it is.</span>
+    </div>
+  );
+}
+
 /* ============================== 2. VARIABLES ============================== */
 function VariablesLayer({ project, update, settings }) {
   const addChar = () => update({ characters: [...project.characters, { id: newId(), name: "", description: "", spec: "", refImage: "", voice: "", seed: randSeed(), locked: false }] });
   const setChar = (id, patch) => update({ characters: project.characters.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   const delChar = (id) => update({ characters: project.characters.filter((c) => c.id !== id) });
+
+  const renderBase = (settings?.renderUrl || RENDER_DEFAULT).replace(/\/$/, "");
+  const [voiceOpts, setVoiceOpts] = useState([]);
+  const loadVoices = useCallback(async () => {
+    const builtin = [
+      { id: "en_US-amy-medium", label: "Amy — US English (medium)" },
+      { id: "en_US-ryan-high", label: "Ryan — US English (high)" },
+      { id: "en_GB-alba-medium", label: "Alba — UK English (medium)" },
+    ];
+    try {
+      const d = await (await fetch(renderBase + "/voices")).json();
+      const all = [...(d.installed || []), ...(d.clones || []), ...(d.catalog || [])];
+      const seen = new Set(), opts = [];
+      for (const v of all) if (!seen.has(v.id)) { seen.add(v.id); opts.push(v); }
+      setVoiceOpts(opts.length ? opts : builtin);
+    } catch (_) { setVoiceOpts(builtin); }
+  }, [renderBase]);
+  useEffect(() => { loadVoices(); }, [loadVoices]);
 
   return (
     <Layer n="02" title="Variables" sub="The dials that keep every scene visually consistent.">
@@ -518,7 +599,10 @@ function VariablesLayer({ project, update, settings }) {
         </div>
         <div className="field">
           <label>Narrator voice</label>
-          <input value={project.voice} onChange={(e) => update({ voice: e.target.value })} placeholder="e.g. en_US-amy-medium (Piper voice)" />
+          <VoiceSelect value={project.voice} options={voiceOpts} onChange={(v) => update({ voice: v })} />
+          <div style={{ marginTop: "6px" }}>
+            <CloneVoice base={renderBase} onCloned={(v) => { loadVoices(); update({ voice: v.id }); }} />
+          </div>
         </div>
         <div className="field">
           <label>Tone</label>
@@ -536,7 +620,7 @@ function VariablesLayer({ project, update, settings }) {
         ) : (
           <div className="charlist">
             {project.characters.map((c) => (
-              <CharacterCard key={c.id} ch={c} project={project} settings={settings}
+              <CharacterCard key={c.id} ch={c} project={project} settings={settings} voiceOpts={voiceOpts}
                 onChange={(patch) => setChar(c.id, patch)} onRemove={() => delChar(c.id)} />
             ))}
           </div>
@@ -547,7 +631,7 @@ function VariablesLayer({ project, update, settings }) {
 }
 
 /* ---- character preview: locked look spec + reference image + locked seed ---- */
-function CharacterCard({ ch, project, settings, onChange, onRemove }) {
+function CharacterCard({ ch, project, settings, voiceOpts, onChange, onRemove }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const fileRef = useRef(null);
@@ -617,8 +701,7 @@ Return ONE concise paragraph (max ~55 words) of fixed, repeatable visual traits 
           </div>
           <div className="seedrow">
             <span className="minilabel">Voice</span>
-            <input className="voiceinput mono" value={ch.voice || ""} onChange={(e) => onChange({ voice: e.target.value })}
-              placeholder="Piper voice, e.g. en_US-ryan-high" />
+            <span className="voicewrap"><VoiceSelect value={ch.voice} options={voiceOpts || []} onChange={(v) => onChange({ voice: v })} /></span>
           </div>
         </div>
       </div>
@@ -906,7 +989,7 @@ function Handoff({ project, settings }) {
     try { await navigator.clipboard.writeText(JSON.stringify(obj, null, 2)); setCopied(which); setTimeout(() => setCopied(""), 1400); } catch (_) {}
   };
 
-  const base = (settings?.renderUrl || "http://localhost:8080").replace(/\/$/, "");
+  const base = (settings?.renderUrl || RENDER_DEFAULT).replace(/\/$/, "");
   async function renderVideo() {
     setRender({ state: "queued" });
     try {
@@ -1107,6 +1190,10 @@ function Styles() {
       .seedrow { display:flex; align-items:center; gap:8px; margin-top:8px; }
       .seedinput { width:120px; padding:6px 9px; font-size:12px; }
       .voiceinput { flex:1; padding:6px 9px; font-size:12px; }
+      .voicewrap { flex:1; } .voicewrap select { width:100%; }
+      .clonebox { border:1px dashed var(--line2); border-radius:9px; padding:10px; margin-top:8px; display:flex; flex-direction:column; gap:8px; }
+      .clonerow { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+      .clonerow input[type=file] { font-size:12px; }
       .error.tiny { margin-top:8px; }
       .charnote { color:var(--muted2); font-size:11px; line-height:1.5; margin:10px 0 0; }
 
