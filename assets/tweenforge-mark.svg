@@ -1,0 +1,38 @@
+<svg viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tweenforge">
+  <defs>
+    <radialGradient id="tfGlow" cx="62%" cy="50%" r="42%">
+      <stop offset="0%" stop-color="#f2b450" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#f2b450" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="tfBlur" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="2.4"/>
+    </filter>
+    <linearGradient id="tfTile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1b1726"/>
+      <stop offset="100%" stop-color="#131019"/>
+    </linearGradient>
+  </defs>
+
+  <!-- cel / frame tile -->
+  <rect x="3" y="3" width="90" height="90" rx="22" fill="url(#tfTile)" stroke="#3a3252" stroke-width="2"/>
+
+  <!-- forge glow behind the lead chevron -->
+  <circle cx="60" cy="48" r="34" fill="url(#tfGlow)"/>
+
+  <!-- onion-skin keyframes (ghosts) -->
+  <path d="M28 30 L44 48 L28 66" fill="none" stroke="#8c9bf0" stroke-width="7"
+        stroke-linecap="round" stroke-linejoin="round" opacity="0.22"/>
+  <path d="M41 30 L57 48 L41 66" fill="none" stroke="#8c9bf0" stroke-width="7"
+        stroke-linecap="round" stroke-linejoin="round" opacity="0.45"/>
+
+  <!-- forged lead chevron -->
+  <path d="M54 30 L70 48 L54 66" fill="none" stroke="#f2b450" stroke-width="7.5"
+        stroke-linecap="round" stroke-linejoin="round" filter="url(#tfBlur)" opacity="0.7"/>
+  <path d="M54 30 L70 48 L54 66" fill="none" stroke="#f2b450" stroke-width="7.5"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- forge sparks off the tip -->
+  <circle cx="77" cy="44" r="1.8" fill="#f2b450"/>
+  <circle cx="80" cy="50" r="1.2" fill="#f2b450" opacity="0.8"/>
+  <circle cx="75" cy="53" r="1" fill="#ffd27a" opacity="0.9"/>
+</svg>
