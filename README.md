@@ -118,4 +118,4 @@ The render backend is not part of this repo yet — it's the next build.
 
 ## License
 
-MIT (suggested — set as you prefer).
+MIT 
