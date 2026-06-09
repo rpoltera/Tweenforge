@@ -479,7 +479,7 @@ function BriefLayer({ project, update }) {
 
 /* ============================== 2. VARIABLES ============================== */
 function VariablesLayer({ project, update, settings }) {
-  const addChar = () => update({ characters: [...project.characters, { id: newId(), name: "", description: "", spec: "", refImage: "", seed: randSeed(), locked: false }] });
+  const addChar = () => update({ characters: [...project.characters, { id: newId(), name: "", description: "", spec: "", refImage: "", voice: "", seed: randSeed(), locked: false }] });
   const setChar = (id, patch) => update({ characters: project.characters.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
   const delChar = (id) => update({ characters: project.characters.filter((c) => c.id !== id) });
 
@@ -517,8 +517,8 @@ function VariablesLayer({ project, update, settings }) {
           </div>
         </div>
         <div className="field">
-          <label>Narration voice</label>
-          <input value={project.voice} onChange={(e) => update({ voice: e.target.value })} placeholder="e.g. calm female narrator" />
+          <label>Narrator voice</label>
+          <input value={project.voice} onChange={(e) => update({ voice: e.target.value })} placeholder="e.g. en_US-amy-medium (Piper voice)" />
         </div>
         <div className="field">
           <label>Tone</label>
@@ -615,10 +615,15 @@ Return ONE concise paragraph (max ~55 words) of fixed, repeatable visual traits 
             <input className="seedinput mono" type="number" value={ch.seed ?? ""} onChange={(e) => onChange({ seed: Number(e.target.value) })} />
             <button className="ghost tiny" onClick={() => onChange({ seed: randSeed() })}>↻</button>
           </div>
+          <div className="seedrow">
+            <span className="minilabel">Voice</span>
+            <input className="voiceinput mono" value={ch.voice || ""} onChange={(e) => onChange({ voice: e.target.value })}
+              placeholder="Piper voice, e.g. en_US-ryan-high" />
+          </div>
         </div>
       </div>
       {err && <p className="error tiny">{err}</p>}
-      <p className="charnote">Pipeline uses all three to keep this face steady: the look text in every prompt, the reference via IP-Adapter, the seed for reproducibility.</p>
+      <p className="charnote">Look, reference, and seed keep the face steady across scenes; the voice is used whenever this character is the speaker.</p>
     </div>
   );
 }
@@ -647,7 +652,7 @@ function ScriptLayer({ project, update, settings }) {
     if (!pieces.length) { setErr("Paste a script first — blank lines between scenes work best."); return; }
     const scenes = pieces.map((narr) => {
       const words = narr.split(/\s+/).filter(Boolean).length;
-      return { id: newId(), narration: narr, prompt: "", seconds: Math.max(3, Math.round(words / 2.5)), motion: "hold", flag: null };
+      return { id: newId(), narration: narr, prompt: "", speaker: "narrator", seconds: Math.max(3, Math.round(words / 2.5)), motion: "hold", flag: null };
     });
     const total = scenes.reduce((a, s) => a + s.seconds, 0);
     update({ scenes, status: "planned" });
@@ -662,6 +667,11 @@ function ScriptLayer({ project, update, settings }) {
       : `the topic "${project.topic || project.title}"`;
     const chars = project.characters.filter((c) => c.name).map((c) => `${c.name}: ${c.spec || c.description}`).join(" | ") || "none";
 
+    const charNames = project.characters.filter((c) => c.name).map((c) => c.name);
+    const speakerList = charNames.length
+      ? `Assign each scene a "speaker": either "narrator" or one of these characters: ${charNames.join(", ")}. Use characters for lines they'd say; narrator for everything else.`
+      : `Set "speaker" to "narrator" on every scene.`;
+
     const prompt =
 `You are the script + storyboard writer for a faceless 2D animated explainer channel.
 Write a scene-by-scene plan for ${subject}.
@@ -670,20 +680,23 @@ Constraints:
 - Visual style: ${styleHint}
 - Setting — time: ${project.era}; place: ${project.place || "as fits the topic"}
 - Recurring characters: ${chars}
-- Tone: ${project.tone}. Narration voice: ${project.voice}.
+- Tone: ${project.tone}.
+- ${speakerList}
 - Produce exactly ${askFor} scenes (a${askFor < targetScenes ? "n opening" : " full"} stretch of the ~${targetScenes}-scene, ${project.durationMin}-minute video).
 
 Return ONLY valid JSON, no prose, no markdown fences, in this exact shape:
-{"title":"a tight, specific video title","scenes":[{"narration":"one or two spoken sentences","prompt":"one line describing the single illustration for this scene, in the chosen style","seconds":12,"motion":"one of: ${MOTIONS.join(", ")}"}]}
+{"title":"a tight, specific video title","scenes":[{"narration":"one or two spoken sentences","speaker":"narrator","prompt":"one line describing the single illustration for this scene, in the chosen style","seconds":12,"motion":"one of: ${MOTIONS.join(", ")}"}]}
 Keep narration and prompts concise. If you are running low on space, return fewer fully-formed scenes rather than cutting one off mid-object. Make prompts visually consistent with the style and characters.`;
 
     try {
       const text = await callLLM(settings, prompt, { json: true, maxTokens: 4000 });
       const plan = parsePlan(text);
+      const valid = new Set(["narrator", ...charNames]);
       const scenes = (plan.scenes || []).map((s) => ({
         id: newId(),
         narration: s.narration || "",
         prompt: s.prompt || "",
+        speaker: valid.has(s.speaker) ? s.speaker : "narrator",
         seconds: Number(s.seconds) || 12,
         motion: MOTIONS.includes(s.motion) ? s.motion : "hold",
         flag: null,
@@ -774,6 +787,7 @@ function Storyboard({ project, update }) {
       <div className="reel">
         {project.scenes.map((s, i) => (
           <SceneCard key={s.id} idx={i} scene={s} start={starts[i]}
+            speakers={["narrator", ...project.characters.filter((c) => c.name).map((c) => c.name)]}
             onChange={(patch) => setScene(s.id, patch)} onDelete={() => delScene(s.id)} />
         ))}
       </div>
@@ -796,12 +810,13 @@ const FLAG_ACTIONS = [
   { id: "motion", label: "Change motion" },
 ];
 
-function SceneCard({ idx, scene, start, onChange, onDelete }) {
+function SceneCard({ idx, scene, start, speakers, onChange, onDelete }) {
   const flagged = !!scene.flag;
   const setFlag = (action) => {
     if (scene.flag?.action === action) onChange({ flag: null });
     else onChange({ flag: { action, note: scene.flag?.note || "" } });
   };
+  const speaker = scene.speaker || "narrator";
   return (
     <article className={"cel" + (flagged ? " flagged" : "")}>
       <div className="celspine">
@@ -819,6 +834,12 @@ function SceneCard({ idx, scene, start, onChange, onDelete }) {
           onChange={(e) => onChange({ prompt: e.target.value })} />
 
         <div className="celmeta">
+          <label className="inline">
+            <span>speaker</span>
+            <select value={speaker} onChange={(e) => onChange({ speaker: e.target.value })}>
+              {(speakers || ["narrator"]).map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
           <label className="inline">
             <span>sec</span>
             <input className="secinput mono" type="number" min={1} value={scene.seconds}
@@ -863,13 +884,17 @@ function Handoff({ project, settings }) {
       name: c.name,
       look: c.spec || c.description,
       seed: c.seed,
+      voice: c.voice || "",
       reference: c.refImage ? "image attached" : null,
       locked: !!c.locked,
     })),
-    voice: project.voice,
+    narrator_voice: project.voice,
+    voices: project.characters.filter((c) => c.name && c.voice)
+      .reduce((m, c) => { m[c.name] = c.voice; return m; }, { narrator: project.voice }),
     music_mood: project.musicMood,
     scenes: project.scenes.map((s, i) => ({
       scene_id: s.id, index: i, start: starts[i], seconds: s.seconds,
+      speaker: s.speaker || "narrator",
       narration: s.narration, image_prompt: s.prompt, motion: s.motion,
     })),
   };
@@ -1081,6 +1106,7 @@ function Styles() {
       .spec:focus { border-color:var(--cool); background:var(--ink); }
       .seedrow { display:flex; align-items:center; gap:8px; margin-top:8px; }
       .seedinput { width:120px; padding:6px 9px; font-size:12px; }
+      .voiceinput { flex:1; padding:6px 9px; font-size:12px; }
       .error.tiny { margin-top:8px; }
       .charnote { color:var(--muted2); font-size:11px; line-height:1.5; margin:10px 0 0; }
 
