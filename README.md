@@ -116,7 +116,7 @@ In the app, open **Settings** and set the **Render service URL** to
 `http://<container-ip>:8080`, then click **Render video** in the Handoff layer.
 
 The engine reads the manifest and produces an MP4: voiceover (TTS) -> a visual per
-scene -> Ken Burns motion -> ffmpeg encode. Out of the box, scenes render as clean
+scene -> Ken Burns motion -> ffmpeg encode. Each scene has a speaker (narrator or a character), and each character can have its own voice, so multi-character explainers use distinct voices. Out of the box, scenes render as clean
 typographic motion cards, so you get a finished video immediately. Point it at a
 Stable Diffusion endpoint (`SD_URL`) for AI art, and set `USE_NVENC=1` on a
 GPU-passthrough container to encode on the P40s.
