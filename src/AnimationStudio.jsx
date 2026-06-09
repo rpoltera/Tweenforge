@@ -18,6 +18,7 @@ const SETTINGS_KEY = "cels:settings:v1";
 function defaultSettings() {
   return {
     active: "preview",
+    renderUrl: "http://localhost:8080",
     providers: {
       preview:    { id: "preview",    label: "Claude — in-chat preview", kind: "anthropic-proxy", baseUrl: "", apiKey: "", model: "claude-sonnet-4-20250514" },
       openai:     { id: "openai",     label: "OpenAI",                    kind: "openai", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini" },
@@ -343,6 +344,13 @@ function SettingsDrawer({ open, onClose, settings, setSettings }) {
         )}
 
         <p className="warn">Security note: browsers block most direct calls to hosted APIs (CORS), and any key saved here lives in this browser. For the real deployment, keep keys on your backend and have this UI call your server, which calls the provider. Ollama on localhost and the in-chat preview are the two that work without that.</p>
+
+        <div className="field" style={{ marginTop: "18px" }}>
+          <label>Render service URL</label>
+          <input value={settings.renderUrl || ""} onChange={(e) => setSettings({ ...settings, renderUrl: e.target.value })}
+            placeholder="http://localhost:8080" />
+          <span className="help">Where the render engine runs. The "Render video" button in Handoff posts the manifest here.</span>
+        </div>
       </div>
     </div>
   );
@@ -416,7 +424,7 @@ function Desk({ project, update, settings }) {
       <VariablesLayer project={project} update={update} settings={settings} />
       <ScriptLayer project={project} update={update} settings={settings} />
       <Storyboard project={project} update={update} />
-      <Handoff project={project} />
+      <Handoff project={project} settings={settings} />
     </div>
   );
 }
@@ -841,8 +849,9 @@ function SceneCard({ idx, scene, start, onChange, onDelete }) {
 }
 
 /* ============================== 5. HANDOFF ============================== */
-function Handoff({ project }) {
+function Handoff({ project, settings }) {
   const [copied, setCopied] = useState("");
+  const [render, setRender] = useState({ state: "idle" }); // idle|queued|rendering|done|error
   const starts = startTimes(project.scenes);
 
   const manifest = {
@@ -872,6 +881,30 @@ function Handoff({ project }) {
     try { await navigator.clipboard.writeText(JSON.stringify(obj, null, 2)); setCopied(which); setTimeout(() => setCopied(""), 1400); } catch (_) {}
   };
 
+  const base = (settings?.renderUrl || "http://localhost:8080").replace(/\/$/, "");
+  async function renderVideo() {
+    setRender({ state: "queued" });
+    try {
+      const r = await fetch(base + "/render", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(manifest),
+      });
+      const { job_id, error } = await r.json();
+      if (!job_id) throw new Error(error || "Render service rejected the manifest.");
+      // poll
+      for (let i = 0; i < 1200; i++) {
+        await new Promise((res) => setTimeout(res, 2500));
+        const s = await (await fetch(`${base}/status/${job_id}`)).json();
+        if (s.status === "done") { setRender({ state: "done", url: `${base}/video/${job_id}` }); return; }
+        if (s.status === "error") { setRender({ state: "error", error: s.error || "render failed" }); return; }
+        setRender({ state: s.status === "rendering" ? "rendering" : "queued" });
+      }
+      setRender({ state: "error", error: "timed out" });
+    } catch (e) {
+      setRender({ state: "error", error: e.message + " — is the render service running? (" + base + ")" });
+    }
+  }
+
   return (
     <Layer n="05" title="Handoff" sub="What your pipeline reads. Manifest builds the video; edits re-render only flagged scenes.">
       <div className="handoffgrid">
@@ -894,7 +927,23 @@ function Handoff({ project }) {
           <pre className="mono code">{edits.length ? JSON.stringify(edits, null, 2) : "No flagged scenes. Flag changes in the storyboard to populate this."}</pre>
         </div>
       </div>
-      <p className="wire">Wire-up: POST the manifest to your generator (LLM narration → TTS → SDXL art → motion → ffmpeg <code>h264_nvenc</code>), and send edits to re-render only the listed <code>scene_id</code>s.</p>
+
+      <div className="renderbar">
+        <button className="primary" onClick={renderVideo}
+          disabled={!project.scenes.length || render.state === "queued" || render.state === "rendering"}>
+          {render.state === "queued" || render.state === "rendering" ? "Rendering…" : "▶ Render video"}
+        </button>
+        <div className="renderstatus">
+          {render.state === "rendering" && <span className="genmeta mono">building scenes on the render box…</span>}
+          {render.state === "queued" && <span className="genmeta mono">queued…</span>}
+          {render.state === "done" && <a className="dl" href={render.url} target="_blank" rel="noreferrer">⬇ Download / preview MP4</a>}
+          {render.state === "error" && <span className="error tiny">{render.error}</span>}
+          {render.state === "idle" && <span className="genmeta mono">renders on your box via the render service ({base})</span>}
+        </div>
+      </div>
+      {(render.state === "queued" || render.state === "rendering") && <div className="bar"><span /></div>}
+
+      <p className="wire">The render service reads this manifest and produces the MP4 (voiceover → per-scene visual → motion → ffmpeg <code>h264_nvenc</code>). Connect Stable Diffusion (set <code>SD_URL</code>) for AI art; otherwise scenes render as clean typographic cards. Set the service URL in Settings.</p>
     </Layer>
   );
 }
@@ -1095,6 +1144,10 @@ function Styles() {
       .code { margin:0; padding:14px; font-size:11.5px; color:var(--muted); max-height:260px; overflow:auto; white-space:pre-wrap; word-break:break-word; line-height:1.5; }
       .wire { margin:14px 0 0; color:var(--muted2); font-size:12px; line-height:1.6; }
       .wire code { background:var(--ink3); padding:1px 6px; border-radius:5px; font-family:var(--mono); font-size:11px; color:var(--cool); }
+      .renderbar { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-top:18px; padding-top:18px; border-top:1px solid var(--line); }
+      .renderstatus { display:flex; align-items:center; }
+      .dl { color:var(--ok); font-size:14px; font-weight:600; text-decoration:none; }
+      .dl:hover { text-decoration:underline; }
 
       /* settings drawer */
       .drawerback { position:fixed; inset:0; background:rgba(8,6,12,.6); z-index:50; display:flex; justify-content:flex-end; }
