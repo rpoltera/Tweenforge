@@ -1,6 +1,19 @@
-# Tweenforge
+<p align="center">
+  <img src="assets/tweenforge-banner.png" alt="Tweenforge" width="720">
+</p>
 
-**A self-hosted control desk for automated, faceless 2D-animated explainer videos.**
+<p align="center">
+  <em>Self-hosted control desk for automated, faceless 2D-animated explainer videos.</em>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/React-18-8c9bf0?style=flat-square&logo=react&logoColor=white" alt="React">
+  <img src="https://img.shields.io/badge/Vite-5-f2b450?style=flat-square&logo=vite&logoColor=white" alt="Vite">
+  <img src="https://img.shields.io/badge/deploy-Proxmox%20LXC-c9c2d8?style=flat-square" alt="Proxmox LXC">
+  <img src="https://img.shields.io/badge/license-MIT-7fd1a6?style=flat-square" alt="MIT">
+</p>
+
+---
 
 Tweenforge is the cockpit for a daily-video pipeline: you give it a theme or a
 topic, set your style and characters, and it drafts a scene-by-scene storyboard
@@ -66,23 +79,20 @@ Serve `./dist` with nginx or `serve` behind a systemd unit for a long-running de
 
 ## Deploy to a Proxmox LXC
 
-On the Proxmox host, as root, one command builds and starts everything:
+The installer is **self-contained** — the app is embedded inside it, so the only
+file the repo needs for deployment is `install-tweenforge-lxc.sh`. On the Proxmox
+host, as root, one command does everything:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rpoltera/Tweenforge/main/install-tweenforge-lxc.sh | bash
 ```
 
-It runs directly — nothing is saved or opened. The script **auto-detects** your
-container storage, your Debian template (downloading one if none is present), and
-your network bridge; picks the next free container ID; creates the LXC; installs
-Node; clones and builds the app; and registers a systemd service that auto-starts
-on boot. It prints the container ID and the URL when it finishes.
-
-To update later, inside the container:
-
-```bash
-cd /opt/tweenforge && git pull && npm install && npm run build && systemctl restart tweenforge
-```
+It runs directly — nothing is saved or opened, and there are no folders to upload.
+The script **auto-detects** your container storage, your Debian template
+(downloading one if none is present), and your network bridge; picks the next free
+container ID; creates the LXC; installs Node; unpacks and builds the bundled app;
+and registers a systemd service that auto-starts on boot. It prints the container
+ID and the URL when it finishes.
 
 
 ---
@@ -131,4 +141,4 @@ The render backend is not part of this repo yet — it's the next build.
 
 ## License
 
-MIT — Free & Open Source
+MIT (suggested — set as you prefer).
