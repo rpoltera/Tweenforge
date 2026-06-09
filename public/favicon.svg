@@ -1,0 +1,8 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tweenforge">
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="#16121f" stroke="#3a3252" stroke-width="1.5"/>
+  <path d="M20 19 L31 32 L20 45" fill="none" stroke="#8c9bf0" stroke-width="6"
+        stroke-linecap="round" stroke-linejoin="round" opacity="0.4"/>
+  <path d="M33 19 L44 32 L33 45" fill="none" stroke="#f2b450" stroke-width="6.5"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="49" cy="29" r="1.6" fill="#f2b450"/>
+</svg>
