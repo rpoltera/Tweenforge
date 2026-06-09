@@ -66,11 +66,24 @@ Serve `./dist` with nginx or `serve` behind a systemd unit for a long-running de
 
 ## Deploy to a Proxmox LXC
 
-The repo includes `install-tweenforge-lxc.sh`, run **on the Proxmox host as root**.
-It picks the next free container ID, creates a Debian LXC, installs Node, deploys
-the app, and registers a systemd service that auto-starts on boot. Adjust the
-config block at the top (`TEMPLATE`, `STORAGE`, `BRIDGE`, `PORT`) to match your
-environment.
+On the Proxmox host, as root, one command builds and starts everything:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rpoltera/Tweenforge/main/install-tweenforge-lxc.sh | bash
+```
+
+It runs directly — nothing is saved or opened. The script **auto-detects** your
+container storage, your Debian template (downloading one if none is present), and
+your network bridge; picks the next free container ID; creates the LXC; installs
+Node; clones and builds the app; and registers a systemd service that auto-starts
+on boot. It prints the container ID and the URL when it finishes.
+
+To update later, inside the container:
+
+```bash
+cd /opt/tweenforge && git pull && npm install && npm run build && systemctl restart tweenforge
+```
+
 
 ---
 
@@ -118,4 +131,4 @@ The render backend is not part of this repo yet — it's the next build.
 
 ## License
 
-MIT 
+MIT (suggested — set as you prefer).
