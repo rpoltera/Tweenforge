@@ -45,8 +45,8 @@ any OpenAI-compatible endpoint (vLLM, LM Studio, LocalAI). Pick one in Settings.
 Requires **Node.js 18+**.
 
 ```bash
-git clone https://github.com/<you>/tweenforge.git
-cd tweenforge
+git clone https://github.com/rpoltera/Tweenforge.git
+cd Tweenforge
 npm install
 npm run dev
 ```
@@ -118,4 +118,4 @@ The render backend is not part of this repo yet — it's the next build.
 
 ## License
 
-MIT 
+MIT (suggested — set as you prefer).
