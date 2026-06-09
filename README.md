@@ -109,6 +109,18 @@ Click the provider button in the top bar → **API & models**.
   calls (CORS) and a key in the browser is exposed. Route these through a backend
   in production rather than calling them from the page.
 
+## Make a video
+
+The installer also sets up the **render engine** (a small service on the same box).
+In the app, open **Settings** and set the **Render service URL** to
+`http://<container-ip>:8080`, then click **Render video** in the Handoff layer.
+
+The engine reads the manifest and produces an MP4: voiceover (TTS) -> a visual per
+scene -> Ken Burns motion -> ffmpeg encode. Out of the box, scenes render as clean
+typographic motion cards, so you get a finished video immediately. Point it at a
+Stable Diffusion endpoint (`SD_URL`) for AI art, and set `USE_NVENC=1` on a
+GPU-passthrough container to encode on the P40s.
+
 ---
 
 ## Where this fits the pipeline
@@ -140,4 +152,5 @@ The render backend is not part of this repo yet — it's the next build.
 ---
 
 ## License
-MIT — Free & Open Source
+
+MIT (suggested — set as you prefer).
