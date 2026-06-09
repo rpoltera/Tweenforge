@@ -11,7 +11,7 @@ set -euo pipefail
 REPO="https://github.com/rpoltera/Tweenforge.git"
 HOSTNAME="tweenforge"
 TEMPLATE="local:vztmpl/debian-13-standard_13.0-1_amd64.tar.zst"  # adjust if yours differs
-STORAGE="local-lvm"    # where the container disk lives
+STORAGE="local-zfs"    # container disk pool — set to what `pvesm status` shows (e.g. local-zfs, local-lvm)
 BRIDGE="vmbr0"         # network bridge
 DISK_GB=8
 CORES=2
